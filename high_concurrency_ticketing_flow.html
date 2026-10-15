@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>高併發搶票架構</title>
+<style>
+:root{
+  --bg:#ffffff; --alt:#f7f9fb;
+  --fg:#16191d; --muted:#5f6b7a; --faint:#8b95a3;
+  --line:#e3e8ee; --line2:#cfd7e0;
+  --pri:#0b6bcb; --pri-d:#075099; --pri-bg:#eef5fd; --pri-line:#bcd8f5;
+  --warn:#8a5a00; --warn-bg:#fff8e8; --warn-line:#f2d08a;
+  --ok:#146c43; --ok-bg:#eefaf3; --ok-line:#b7e2c9;
+  --bad:#b42318; --bad-bg:#fef3f2; --bad-line:#f4c4c0;
+  --code:#f2f5f8; --paper:#f5f5f5;
+  --r:10px;
+  --sh:0 1px 2px rgba(16,24,40,.05), 0 1px 3px rgba(16,24,40,.06);
+  --sh2:0 4px 12px rgba(16,24,40,.09);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth;scroll-padding-top:74px}
+body{margin:0;background:var(--bg);color:var(--fg);
+     font:16px/1.8 "Segoe UI","Microsoft JhengHei",system-ui,-apple-system,sans-serif;
+     -webkit-font-smoothing:antialiased}
+.wrap{max-width:1240px;margin:0 auto;padding:0 26px}
+code,pre{font-family:"Cascadia Mono",Consolas,ui-monospace,monospace}
+code{font-size:13.5px;background:var(--code);padding:2px 6px;border-radius:4px;
+     border:1px solid rgba(0,0,0,.04);white-space:nowrap}
+pre{background:var(--code);border:1px solid var(--line);border-radius:var(--r);
+    padding:14px 16px;overflow-x:auto;font-size:13px;line-height:1.7;margin:0}
+pre code{background:none;border:0;padding:0;white-space:pre}
+pre b{color:var(--pri-d)}
+pre .cm{color:var(--muted)}
+a{color:var(--pri);text-underline-offset:2px}
+strong,b{font-weight:600}
+
+.hero{background:linear-gradient(180deg,var(--pri-bg),var(--bg));border-bottom:1px solid var(--line)}
+.hero .wrap{padding-top:52px;padding-bottom:36px}
+.hero .eyebrow{font-size:12.5px;font-weight:700;letter-spacing:1.4px;color:var(--pri);
+               background:#fff;border:1px solid var(--pri-line);display:inline-block;
+               padding:4px 11px;border-radius:20px}
+.hero h1{font-size:34px;line-height:1.3;margin:14px 0 10px;letter-spacing:-.4px}
+.hero p.lead{font-size:17.5px;color:var(--muted);margin:0;max-width:900px}
+.jump{display:flex;gap:14px;flex-wrap:wrap;margin-top:26px}
+.jump a{flex:1 1 260px;display:block;text-decoration:none;color:inherit;background:#fff;
+        border:1px solid var(--line2);border-radius:var(--r);padding:18px 20px;
+        box-shadow:var(--sh);transition:.16s}
+.jump a:hover{border-color:var(--pri);box-shadow:var(--sh2);transform:translateY(-2px)}
+.jump .ic{font-size:26px;line-height:1}
+.jump b{display:block;font-size:17px;margin:8px 0 3px;color:var(--pri)}
+.jump span{font-size:14.5px;color:var(--muted);line-height:1.65;display:block}
+
+nav{position:sticky;top:0;z-index:50;background:rgba(255,255,255,.94);
+    backdrop-filter:blur(8px);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;gap:4px;align-items:center;height:54px;overflow-x:auto}
+nav a{font-size:14px;color:var(--muted);text-decoration:none;padding:7px 12px;
+      border-radius:7px;white-space:nowrap;transition:.13s}
+nav a:hover{background:var(--alt);color:var(--fg)}
+nav a.on{background:var(--pri-bg);color:var(--pri-d);font-weight:600}
+nav .sep{width:1px;height:22px;background:var(--line2);margin:0 8px;flex:none}
+
+.part{border-top:1px solid var(--line);background:var(--alt)}
+.part .wrap{padding:34px 26px}
+.part .tag{display:inline-block;font-size:12.5px;font-weight:700;letter-spacing:1.4px;
+           color:var(--pri);background:var(--pri-bg);border:1px solid var(--pri-line);
+           padding:4px 11px;border-radius:20px}
+.part h2{font-size:27px;margin:14px 0 6px;letter-spacing:-.3px}
+.part p{margin:0;color:var(--muted);font-size:16px;max-width:900px}
+section{padding:8px 0 4px}
+h3{font-size:21px;margin:44px 0 12px;padding-bottom:9px;border-bottom:2px solid var(--line);
+   scroll-margin-top:74px}
+h3 .num{color:var(--faint);font-weight:400;margin-right:10px;font-size:18px}
+h4{font-size:17px;margin:30px 0 10px;color:var(--pri-d)}
+p{margin:12px 0}
+p.intro{color:var(--muted);font-size:15.5px;max-width:940px}
+
+.fig{margin:18px 0 34px}
+.figcap{font-size:17.5px;font-weight:600;margin:0 0 5px;display:flex;gap:11px;align-items:baseline;flex-wrap:wrap}
+.figcap .n{font-size:12.5px;font-weight:700;letter-spacing:1.2px;color:var(--pri);
+           background:var(--pri-bg);border:1px solid var(--pri-line);padding:3px 10px;border-radius:20px}
+.plate{background:var(--paper);border:1px solid var(--line);border-radius:var(--r);
+       box-shadow:var(--sh);overflow-x:auto}
+.plate svg{width:100%;min-width:1040px;display:block}
+
+.box{border:1px solid var(--line);border-radius:var(--r);padding:16px 20px;margin:18px 0;
+     background:#fff;box-shadow:var(--sh)}
+.box>:first-child{margin-top:0}.box>:last-child{margin-bottom:0}
+.box.warn{border-color:var(--warn-line);background:var(--warn-bg);box-shadow:none}
+.box.ok{border-color:var(--ok-line);background:var(--ok-bg);box-shadow:none}
+.box.plain{background:var(--alt);box-shadow:none}
+.box h4{margin-top:0}
+.box.warn h4{color:var(--warn)}
+.box.ok h4{color:var(--ok)}
+
+.tw{overflow-x:auto;margin:14px 0 22px;border:1px solid var(--line);border-radius:var(--r);
+    box-shadow:var(--sh);background:#fff}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{padding:10px 14px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{background:var(--alt);font-weight:600;white-space:nowrap;font-size:14px;color:var(--muted);
+   letter-spacing:.2px}
+tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#fbfcfd}
+td.nw{white-space:nowrap}
+td.k{font-weight:600;white-space:nowrap}
+.pill{display:inline-block;font-size:12px;font-weight:600;letter-spacing:.3px;padding:2px 9px;
+      border-radius:20px;white-space:nowrap}
+.pill.a{color:var(--pri-d);background:var(--pri-bg);border:1px solid var(--pri-line)}
+.pill.b{color:#7a3ea8;background:#f5eefd;border:1px solid #ddc6f2}
+.pill.both{color:var(--muted);background:var(--alt);border:1px solid var(--line2)}
+.pill.soft{color:var(--warn);background:var(--warn-bg);border:1px solid var(--warn-line)}
+.pill.stop{color:var(--bad);background:var(--bad-bg);border:1px solid var(--bad-line)}
+
+.codebox{position:relative;margin:14px 0 20px}
+.codebox>.hd{display:flex;align-items:center;gap:10px;background:var(--alt);
+   border:1px solid var(--line);border-bottom:0;border-radius:var(--r) var(--r) 0 0;padding:8px 14px;
+   font-size:13.5px;color:var(--muted)}
+.codebox>.hd b{color:var(--fg);font-size:14px}
+.codebox>.hd .sp{flex:1}
+.codebox pre{border-radius:0 0 var(--r) var(--r)}
+button.cp{border:1px solid var(--line2);background:#fff;border-radius:7px;cursor:pointer;
+          padding:4px 13px;font:inherit;font-size:13px;white-space:nowrap;transition:.13s;color:var(--muted)}
+button.cp:hover{background:var(--pri-bg);border-color:var(--pri);color:var(--pri-d)}
+button.cp.done{background:var(--ok-bg);border-color:var(--ok-line);color:var(--ok)}
+.note{font-size:13.8px;color:var(--muted);margin:13px 0 0;line-height:1.75}
+.note b{color:var(--warn)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px;margin:18px 0 6px}
+.card{border:1px solid var(--line);border-radius:var(--r);padding:18px 20px;background:#fff;
+      box-shadow:var(--sh);transition:.16s}
+.card:hover{border-color:var(--pri-line);box-shadow:var(--sh2)}
+.card h4{display:flex;align-items:center;gap:9px;margin:0 0 12px;padding-bottom:11px;
+         border-bottom:1px solid var(--line);font-size:16.5px;color:var(--fg)}
+.card h4 .dot{width:9px;height:9px;border-radius:50%;flex:none}
+.dot.ok{background:var(--ok)}.dot.pri{background:var(--pri)}.dot.warn{background:#d99400}
+.card ul{margin:0;padding-left:20px;color:var(--muted);font-size:14.5px;line-height:1.75}
+.card li{margin:7px 0}
+.card li code{font-size:12.5px}
+
+ul.tight{margin:12px 0;padding-left:22px;color:var(--muted)}
+ul.tight li{margin:7px 0}
+ul.tight b{color:var(--fg)}
+footer{border-top:1px solid var(--line);margin-top:60px;background:var(--alt)}
+footer .wrap{padding:28px 26px;font-size:14px;color:var(--muted);display:flex;
+             justify-content:space-between;gap:12px;flex-wrap:wrap}
+#top{position:fixed;right:26px;bottom:26px;width:44px;height:44px;border-radius:50%;
+     background:#fff;border:1px solid var(--line2);box-shadow:var(--sh2);cursor:pointer;
+     display:none;align-items:center;justify-content:center;font-size:19px;color:var(--muted)}
+#top:hover{color:var(--pri);border-color:var(--pri)}
+
+.t-name { font: 600 12px 'Segoe UI','Microsoft JhengHei',sans-serif; fill: #2d3142; }
+.t-sub  { font: 400 9px 'Cascadia Mono',Consolas,monospace; fill: #4f5d75; }
+.t-subc { font: 400 12px 'Segoe UI','Microsoft JhengHei',sans-serif; fill: #4f5d75; }
+.t-lbl  { font: 400 8px 'Cascadia Mono',Consolas,monospace; letter-spacing: 0.06em; fill: #7a8399; }
+.t-lblc { font: 400 12px 'Segoe UI','Microsoft JhengHei',sans-serif; fill: #7a8399; }
+.t-leg  { font: 400 9px 'Segoe UI','Microsoft JhengHei',sans-serif; fill: #4f5d75; }
+.t-legh { font: 500 8px 'Cascadia Mono',Consolas,monospace; letter-spacing: 0.14em; fill: #4f5d75; }
+
+@media (max-width:820px){
+  .cards{grid-template-columns:1fr}
+  .hero h1{font-size:27px}.part h2{font-size:22px}
+}
+@media print{
+  nav,#top,.jump,button.cp{display:none}
+  body{font-size:10.5pt}
+  .card,.box,.tw,.fig,.codebox{box-shadow:none;break-inside:avoid}
+  .plate svg{min-width:0}
+  .hero{background:none}
+}
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="wrap">
+    <span class="eyebrow">OPS DOC · 架構設計草案 · 2026-10-14</span>
+    <h1>高併發搶票架構 — 10 萬人同時搶</h1>
+    <p class="lead">核心機制：<b>入口層把流量削成下游吃得下的速率，Redis Lua 原子扣票，DB 只做最後裁決與記帳</b>。Redis 是前置過濾器、不是 source of truth，正確性由 Spanner 的 UNIQUE 約束與對帳保證。本文為設計草案，<b>未做任何壓測</b>。</p>
+    <div class="jump">
+      <a href="#p1"><div class="ic">📊</div><b>流程圖解</b><span>核心規則、請求路徑、Lua 判定、訂單狀態機、分片與補回、報名抽籤制。</span></a>
+      <a href="#p2"><div class="ic">🔧</div><b>規格</b><span>分層防線、Lua 腳本、付款競態規則。</span></a>
+      <a href="#s-status"><div class="ic">🛑</div><b>現況與待決</b><span>哪些驗過、哪些要拍板。</span></a>
+    </div>
+  </div>
+</div>
+
+<nav>
+  <div class="wrap">
+    <a href="#p1" data-s="p1">📊 流程</a>
+    <a href="#s-rule" data-s="s-rule">核心規則</a>
+    <a href="#s-fig1" data-s="s-fig1">請求路徑</a>
+    <a href="#s-fig2" data-s="s-fig2">Lua 判定</a>
+    <a href="#s-fig3" data-s="s-fig3">狀態機</a>
+    <a href="#s-fig4" data-s="s-fig4">分片補回</a>
+    <a href="#s-fig5" data-s="s-fig5">抽籤制</a>
+    <span class="sep"></span>
+    <a href="#p2" data-s="p2">🔧 規格</a>
+    <a href="#s-layer" data-s="s-layer">分層防線</a>
+    <a href="#s-lua" data-s="s-lua">Lua 腳本</a>
+    <a href="#s-race" data-s="s-race">付款競態</a>
+    <a href="#s-status" data-s="s-status">現況</a>
+  </div>
+</nav>
+
+<div class="part" id="p1">
+  <div class="wrap">
+    <span class="tag">PART 1</span>
+    <h2>流程圖解</h2>
+    <p>先看判定規則，再看三張圖：請求怎麼流、Lua 怎麼判、訂單狀態怎麼轉。</p>
+  </div>
+</div>
+
+<div class="wrap">
+<section>
+
+<h3 id="s-rule"><span class="num">1</span>核心規則</h3>
+<p class="intro">Redis Lua 的回傳值決定一切，API 層只翻譯結果，不自己判斷庫存。</p>
+<div class="tw"><table>
+  <thead><tr><th style="width:26%">Lua 回傳 / 情況</th><th style="width:30%">API 行為</th><th>為什麼</th></tr></thead>
+  <tbody>
+  <tr><td><b><code>1</code></b> 扣票成功</td><td>發 hold token，導向付款</td><td>hold 帶 TTL，沒付款自動失效，庫存靠 reaper 補回</td></tr>
+  <tr><td><code>2</code> 同 token 重送</td><td>回上次結果，不再扣</td><td>使用者連點、網路重試都不能多扣</td></tr>
+  <tr><td><code>-2</code> 超過限購</td><td>回 4xx，不扣</td><td>限購在扣票同一個原子步驟內判，才不會被併發繞過</td></tr>
+  <tr><td><code>-1</code> 庫存不足</td><td>回「已售完」，不扣</td><td>不進 DB、不排隊，直接結束</td></tr>
+  <tr><td>Redis 逾時 / failover</td><td colspan="2"><b>失敗關閉</b>：回 <code>503</code> + <code>Retry-After</code>，不放行</td></tr>
+  </tbody>
+</table></div>
+<div class="box ok">
+  <h4>為什麼寧可少賣、不能超賣</h4>
+  <p>Redis 主從切換或 AOF everysec 可能丟最後一秒資料，庫存計數會失準。少賣可以靠對帳補回，超賣已經收錢就只能退款。所以 Redis 無法判斷時一律拒絕，而不是放行賭一把。</p>
+</div>
+
+<h3 id="s-fig1"><span class="num">2</span>請求路徑</h3>
+<p class="intro">看這張圖抓一件事：<b>DB 在最後面</b>，使用者請求走完 Redis 就結束，Spanner 的寫入是非同步的。</p>
+<figure class="fig">
+  <div class="figcap"><span class="n">圖 1</span> 從使用者到 Spanner 的請求路徑</div>
+  <div class="plate">
+  <svg viewBox="0 0 1280 440" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="請求路徑：使用者、邊緣清洗、排隊放行、API、Redis Lua、佇列、Worker、Spanner">
+    <rect width="100%" height="100%" fill="#f5f5f5"/>
+    <defs><marker id="ar1" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker></defs>
+
+    <line x1="285" y1="115" x2="375" y2="115" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="290" y="95" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="330" y="106" class="t-lblc" text-anchor="middle">請求</text>
+    <line x1="595" y1="115" x2="685" y2="115" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="600" y="95" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="640" y="106" class="t-lblc" text-anchor="middle">通過驗證</text>
+    <line x1="905" y1="115" x2="995" y2="115" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="910" y="95" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="950" y="106" class="t-lblc" text-anchor="middle">按速率放行</text>
+    <line x1="1105" y1="150" x2="1105" y2="270" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="1115" y="204" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="1145" y="215" class="t-lbl" text-anchor="middle">EVAL</text>
+    <line x1="995" y1="305" x2="905" y2="305" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="910" y="285" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="950" y="296" class="t-lblc" text-anchor="middle">寫入事件</text>
+    <line x1="685" y1="305" x2="595" y2="305" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="600" y="285" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="640" y="296" class="t-lblc" text-anchor="middle">消費</text>
+    <line x1="375" y1="305" x2="285" y2="305" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar1)"/>
+    <rect x="290" y="285" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="330" y="296" class="t-lblc" text-anchor="middle">批次寫入</text>
+
+    <rect x="65" y="80" width="220" height="70" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+    <text x="175" y="108" class="t-name" text-anchor="middle">使用者 / Bot</text>
+    <text x="175" y="128" class="t-subc" text-anchor="middle">10 萬人同時湧入</text>
+
+    <rect x="375" y="80" width="220" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="485" y="108" class="t-name" text-anchor="middle">邊緣清洗</text>
+    <text x="485" y="128" class="t-sub" text-anchor="middle">CDN · WAF · Turnstile · 登入</text>
+
+    <rect x="685" y="80" width="220" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="795" y="108" class="t-name" text-anchor="middle">排隊放行器</text>
+    <text x="795" y="128" class="t-subc" text-anchor="middle">發號碼牌，不碰 DB</text>
+
+    <rect x="995" y="80" width="220" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="1105" y="108" class="t-name" text-anchor="middle">API 層</text>
+    <text x="1105" y="128" class="t-subc" text-anchor="middle">冪等 key · 限流 · 降級</text>
+
+    <rect x="995" y="270" width="220" height="70" rx="6" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/>
+    <text x="1105" y="298" class="t-name" text-anchor="middle">Redis + Lua</text>
+    <text x="1105" y="318" class="t-subc" text-anchor="middle">查票 · 限購 · 扣票 · hold</text>
+
+    <rect x="685" y="270" width="220" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="795" y="298" class="t-name" text-anchor="middle">Stream / Pub-Sub</text>
+    <text x="795" y="318" class="t-subc" text-anchor="middle">緩衝，削峰</text>
+
+    <rect x="375" y="270" width="220" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="485" y="298" class="t-name" text-anchor="middle">Worker</text>
+    <text x="485" y="318" class="t-subc" text-anchor="middle">批次消費 · 冪等寫入</text>
+
+    <rect x="65" y="270" width="220" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="175" y="298" class="t-name" text-anchor="middle">Spanner</text>
+    <text x="175" y="318" class="t-subc" text-anchor="middle">UNIQUE 約束 · 對帳</text>
+
+    <text x="40" y="420" class="t-legh">LEGEND</text>
+    <rect x="100" y="411" width="12" height="10" rx="2" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/><text x="118" y="420" class="t-leg">焦點：原子扣票</text>
+    <rect x="220" y="411" width="12" height="10" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/><text x="238" y="420" class="t-leg">服務 / 資料</text>
+    <rect x="320" y="411" width="12" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/><text x="338" y="420" class="t-leg">外部</text>
+  </svg>
+  </div>
+</figure>
+
+<h3 id="s-fig2"><span class="num">3</span>Lua 原子扣票判定</h3>
+<p class="intro">四步在同一個 Lua 裡完成，Redis 單執行緒保證中間不會被插隊。順序固定：<b>冪等 → 限購 → 庫存 → 扣</b>。</p>
+<figure class="fig">
+  <div class="figcap"><span class="n">圖 2</span> Lua 腳本內的判定順序</div>
+  <div class="plate">
+  <svg viewBox="0 0 1280 360" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Lua 判定：冪等、限購、庫存、扣票">
+    <rect width="100%" height="100%" fill="#f5f5f5"/>
+    <defs><marker id="ar2" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker></defs>
+
+    <line x1="230" y1="95" x2="300" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="240" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="265" y="86" class="t-lbl" text-anchor="middle">EVAL</text>
+    <line x1="480" y1="95" x2="550" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="490" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="515" y="86" class="t-lblc" text-anchor="middle">否</text>
+    <line x1="730" y1="95" x2="800" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="740" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="765" y="86" class="t-lblc" text-anchor="middle">否</text>
+    <line x1="980" y1="95" x2="1050" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="990" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="1015" y="86" class="t-lblc" text-anchor="middle">足夠</text>
+
+    <line x1="390" y1="130" x2="390" y2="230" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="400" y="173" width="40" height="14" rx="2" fill="#f5f5f5"/><text x="420" y="184" class="t-lblc" text-anchor="middle">是</text>
+    <line x1="640" y1="130" x2="640" y2="230" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="650" y="173" width="40" height="14" rx="2" fill="#f5f5f5"/><text x="670" y="184" class="t-lblc" text-anchor="middle">是</text>
+    <line x1="890" y1="130" x2="890" y2="230" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar2)"/>
+    <rect x="900" y="173" width="40" height="14" rx="2" fill="#f5f5f5"/><text x="920" y="184" class="t-lblc" text-anchor="middle">不足</text>
+
+    <rect x="50" y="60" width="180" height="70" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+    <text x="140" y="88" class="t-name" text-anchor="middle">請求進入</text>
+    <text x="140" y="108" class="t-subc" text-anchor="middle">帶 idempotency key</text>
+
+    <rect x="300" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="390" y="88" class="t-name" text-anchor="middle">① 同 token 重送？</text>
+    <text x="390" y="108" class="t-subc" text-anchor="middle">hold:token 是否存在</text>
+
+    <rect x="550" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="640" y="88" class="t-name" text-anchor="middle">② 超過限購？</text>
+    <text x="640" y="108" class="t-subc" text-anchor="middle">已買 + 本次 &gt; 上限</text>
+
+    <rect x="800" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="890" y="88" class="t-name" text-anchor="middle">③ 庫存足夠？</text>
+    <text x="890" y="108" class="t-subc" text-anchor="middle">stock ≥ 本次數量</text>
+
+    <rect x="1050" y="60" width="180" height="70" rx="6" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/>
+    <text x="1140" y="88" class="t-name" text-anchor="middle">④ 扣票 + 記 hold</text>
+    <text x="1140" y="108" class="t-sub" text-anchor="middle">DECRBY · INCRBY · SET EX</text>
+
+    <rect x="300" y="230" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="390" y="258" class="t-name" text-anchor="middle">return 2</text>
+    <text x="390" y="278" class="t-subc" text-anchor="middle">重複請求，回原結果</text>
+
+    <rect x="550" y="230" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="640" y="258" class="t-name" text-anchor="middle">return -2</text>
+    <text x="640" y="278" class="t-subc" text-anchor="middle">超過限購</text>
+
+    <rect x="800" y="230" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="890" y="258" class="t-name" text-anchor="middle">return -1</text>
+    <text x="890" y="278" class="t-subc" text-anchor="middle">已售完</text>
+
+    <text x="40" y="340" class="t-legh">LEGEND</text>
+    <rect x="100" y="331" width="12" height="10" rx="2" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/><text x="118" y="340" class="t-leg">焦點：唯一會改庫存的一步</text>
+    <rect x="270" y="331" width="12" height="10" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/><text x="288" y="340" class="t-leg">判定 / 結束</text>
+    <rect x="370" y="331" width="12" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/><text x="388" y="340" class="t-leg">入口</text>
+  </svg>
+  </div>
+</figure>
+
+<h3 id="s-fig3"><span class="num">4</span>訂單狀態機</h3>
+<p class="intro">看這張圖抓<b>晚到的付款 callback</b>：hold 過期後才收到付款成功，票可能已被別人拿走，必須走退款。</p>
+<figure class="fig">
+  <div class="figcap"><span class="n">圖 3</span> HELD → PAYING → PAID / EXPIRED / REFUND</div>
+  <div class="plate">
+  <svg viewBox="0 0 1280 400" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="訂單狀態機">
+    <rect width="100%" height="100%" fill="#f5f5f5"/>
+    <defs><marker id="ar3" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker></defs>
+
+    <line x1="260" y1="125" x2="400" y2="125" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar3)"/>
+    <rect x="290" y="103" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="330" y="114" class="t-lblc" text-anchor="middle">開始付款</text>
+    <line x1="600" y1="125" x2="780" y2="125" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar3)"/>
+    <rect x="650" y="103" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="690" y="114" class="t-lblc" text-anchor="middle">付款成功</text>
+    <line x1="160" y1="160" x2="290" y2="270" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar3)"/>
+    <rect x="185" y="207" width="70" height="16" rx="2" fill="#f5f5f5"/><text x="220" y="219" class="t-lblc" text-anchor="middle">TTL 到期</text>
+    <line x1="500" y1="160" x2="370" y2="270" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar3)"/>
+    <rect x="405" y="207" width="60" height="16" rx="2" fill="#f5f5f5"/><text x="435" y="219" class="t-lblc" text-anchor="middle">逾時</text>
+    <line x1="430" y1="305" x2="600" y2="305" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar3)"/>
+    <rect x="475" y="283" width="80" height="14" rx="2" fill="#f5f5f5"/><text x="515" y="294" class="t-lblc" text-anchor="middle">晚到付款</text>
+
+    <rect x="60" y="90" width="200" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="160" y="118" class="t-name" text-anchor="middle">HELD</text>
+    <text x="160" y="138" class="t-subc" text-anchor="middle">已扣庫存，TTL 倒數</text>
+
+    <rect x="400" y="90" width="200" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="500" y="118" class="t-name" text-anchor="middle">PAYING</text>
+    <text x="500" y="138" class="t-subc" text-anchor="middle">TTL 延長，reaper 不掃</text>
+
+    <rect x="780" y="90" width="200" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="880" y="118" class="t-name" text-anchor="middle">PAID</text>
+    <text x="880" y="138" class="t-subc" text-anchor="middle">Worker 寫入 Spanner</text>
+
+    <rect x="230" y="270" width="200" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="330" y="298" class="t-name" text-anchor="middle">EXPIRED</text>
+    <text x="330" y="318" class="t-subc" text-anchor="middle">庫存補回 Redis</text>
+
+    <rect x="600" y="270" width="200" height="70" rx="6" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/>
+    <text x="700" y="298" class="t-name" text-anchor="middle">REFUND</text>
+    <text x="700" y="318" class="t-subc" text-anchor="middle">票已被拿走，自動退款</text>
+
+    <text x="40" y="380" class="t-legh">LEGEND</text>
+    <rect x="100" y="371" width="12" height="10" rx="2" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/><text x="118" y="380" class="t-leg">焦點：競態分支</text>
+    <rect x="230" y="371" width="12" height="10" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/><text x="248" y="380" class="t-leg">狀態</text>
+  </svg>
+  </div>
+</figure>
+
+<h3 id="s-fig4"><span class="num">5</span>庫存分片與 reaper 補回</h3>
+<p class="intro">看這張圖抓兩件事：<b>扣票只打 <code>hash(uid) mod N</code> 固定映射的那一片，售罄就是售罄、不換片</b>；補回庫存必須回到<b>當初扣的那一片</b>，所以 holds ZSET 要按分片拆成 <code>holds:{i}</code>，否則分片計數會漂移。</p>
+<figure class="fig">
+  <div class="figcap"><span class="n">圖 4</span> N 分片扣票路徑 + reaper 掃 sorted set 補回</div>
+  <div class="plate">
+  <svg viewBox="0 0 1280 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="庫存分片扣票與 reaper 補回流程">
+    <rect width="100%" height="100%" fill="#f5f5f5"/>
+    <defs><marker id="ar4" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker></defs>
+
+    <line x1="230" y1="95" x2="300" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="240" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="265" y="86" class="t-lblc" text-anchor="middle">請求</text>
+    <line x1="480" y1="95" x2="550" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="490" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="515" y="86" class="t-lbl" text-anchor="middle">shard i</text>
+    <line x1="730" y1="95" x2="800" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="740" y="75" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="765" y="86" class="t-lblc" text-anchor="middle">成功</text>
+
+    <path d="M580 130 V235 H480" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="495" y="213" width="70" height="14" rx="2" fill="#f5f5f5"/><text x="530" y="224" class="t-lblc" text-anchor="middle">售罄 -1</text>
+
+    <path d="M980 95 H1140 V330" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="1010" y="75" width="70" height="14" rx="2" fill="#f5f5f5"/><text x="1045" y="86" class="t-lblc" text-anchor="middle">到期掃描</text>
+    <line x1="1050" y1="365" x2="980" y2="365" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="990" y="345" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="1015" y="356" class="t-lblc" text-anchor="middle">到期</text>
+    <line x1="800" y1="365" x2="730" y2="365" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="740" y="345" width="50" height="14" rx="2" fill="#f5f5f5"/><text x="765" y="356" class="t-lblc" text-anchor="middle">成功</text>
+    <line x1="640" y1="330" x2="640" y2="130" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar4)"/>
+    <rect x="648" y="223" width="52" height="14" rx="2" fill="#f5f5f5"/><text x="674" y="234" class="t-lbl" text-anchor="middle">INCRBY</text>
+
+    <rect x="50" y="60" width="180" height="70" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+    <text x="140" y="88" class="t-name" text-anchor="middle">API 層</text>
+    <text x="140" y="108" class="t-subc" text-anchor="middle">扣票前先選分片</text>
+
+    <rect x="300" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="390" y="88" class="t-name" text-anchor="middle">選分片 i</text>
+    <text x="390" y="108" class="t-subc" text-anchor="middle">i = hash(uid) mod N</text>
+
+    <rect x="550" y="60" width="180" height="70" rx="6" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/>
+    <text x="640" y="88" class="t-name" text-anchor="middle">stock:{i} Lua 扣票</text>
+    <text x="640" y="108" class="t-subc" text-anchor="middle">查票 · 限購 · 扣票</text>
+
+    <rect x="800" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="890" y="88" class="t-name" text-anchor="middle">holds:{i} ZSET</text>
+    <text x="890" y="108" class="t-subc" text-anchor="middle">score = 過期時間</text>
+
+    <rect x="300" y="200" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="390" y="228" class="t-name" text-anchor="middle">return -1 已售完</text>
+    <text x="390" y="248" class="t-subc" text-anchor="middle">不換片，限購才不被繞過</text>
+
+    <rect x="1050" y="330" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="1140" y="358" class="t-name" text-anchor="middle">Reaper</text>
+    <text x="1140" y="378" class="t-subc" text-anchor="middle">定時掃 score ≤ now</text>
+
+    <rect x="800" y="330" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="890" y="358" class="t-name" text-anchor="middle">CAS 過期</text>
+    <text x="890" y="378" class="t-subc" text-anchor="middle">HELD → EXPIRED，PAYING 跳過</text>
+
+    <rect x="550" y="330" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="640" y="358" class="t-name" text-anchor="middle">補回庫存</text>
+    <text x="640" y="378" class="t-subc" text-anchor="middle">回到 holds:{i} 同一片</text>
+
+    <text x="40" y="450" class="t-legh">LEGEND</text>
+    <rect x="100" y="441" width="12" height="10" rx="2" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/><text x="118" y="450" class="t-leg">焦點：唯一改庫存的地方</text>
+    <rect x="270" y="441" width="12" height="10" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/><text x="288" y="450" class="t-leg">服務 / 資料</text>
+    <rect x="370" y="441" width="12" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/><text x="388" y="450" class="t-leg">入口</text>
+  </svg>
+  </div>
+</figure>
+<div class="box warn">
+  <h4>分片的兩個坑</h4>
+  <ul class="tight">
+    <li><b>補回回錯片</b>：ZSET 按分片拆成 <code>holds:{i}</code>，Reaper 掃哪一片就 <code>INCRBY</code> 那一片的 <code>stock:{i}</code>。</li>
+    <li><b>「已售完」只代表該使用者那一片</b>：其他分片可能還有票，但不能讓使用者換片，否則限購會被繞過。uid 分佈不均時，某片會先售罄而別片有餘，各片庫存怎麼配（或要不要再平衡）尚未拍板。</li>
+    <li><b>N 上線後不可改</b>：改 N 會讓 uid 換片，原本的 <code>bought:{i}:&lt;uid&gt;</code> 計數就對不上。</li>
+  </ul>
+</div>
+
+<h3 id="s-fig5"><span class="num">6</span>報名抽籤制</h3>
+<p class="intro">看這張圖抓一件事：<b>報名階段只收單、不扣庫存</b>，所以沒有搶庫存的競態；扣庫存只發生在抽完籤之後，且只對中籤者做。峰值從「開賣瞬間」變成「報名窗口內的寫入」。</p>
+<figure class="fig">
+  <div class="figcap"><span class="n">圖 5</span> 報名窗口 → 抽籤 → 中籤者進付款</div>
+  <div class="plate">
+  <svg viewBox="0 0 1280 470" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="報名抽籤制流程">
+    <rect width="100%" height="100%" fill="#f5f5f5"/>
+    <defs><marker id="ar5" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0, 8 3, 0 6" fill="#4f5d75"/></marker></defs>
+
+    <line x1="230" y1="95" x2="300" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="235" y="75" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="265" y="86" class="t-lblc" text-anchor="middle">報名</text>
+    <line x1="480" y1="95" x2="550" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="485" y="75" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="515" y="86" class="t-lblc" text-anchor="middle">去重</text>
+    <line x1="730" y1="95" x2="800" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="735" y="75" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="765" y="86" class="t-lblc" text-anchor="middle">窗口關閉</text>
+    <line x1="980" y1="95" x2="1050" y2="95" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="985" y="75" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="1015" y="86" class="t-lblc" text-anchor="middle">中籤</text>
+
+    <line x1="890" y1="130" x2="890" y2="200" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="898" y="158" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="928" y="169" class="t-lblc" text-anchor="middle">未中籤</text>
+    <line x1="1140" y1="130" x2="1140" y2="330" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="1148" y="223" width="70" height="14" rx="2" fill="#f5f5f5"/><text x="1183" y="234" class="t-lblc" text-anchor="middle">限時付款</text>
+    <path d="M980 235 H1080 V330" fill="none" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="990" y="215" width="70" height="14" rx="2" fill="#f5f5f5"/><text x="1025" y="226" class="t-lblc" text-anchor="middle">逾期遞補</text>
+    <line x1="1050" y1="365" x2="980" y2="365" stroke="#4f5d75" stroke-width="1.2" marker-end="url(#ar5)"/>
+    <rect x="985" y="345" width="60" height="14" rx="2" fill="#f5f5f5"/><text x="1015" y="356" class="t-lblc" text-anchor="middle">付款成功</text>
+
+    <rect x="50" y="60" width="180" height="70" rx="6" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/>
+    <text x="140" y="88" class="t-name" text-anchor="middle">使用者</text>
+    <text x="140" y="108" class="t-subc" text-anchor="middle">窗口內任何時間報名</text>
+
+    <rect x="300" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="390" y="88" class="t-name" text-anchor="middle">報名窗口</text>
+    <text x="390" y="108" class="t-subc" text-anchor="middle">只收單，不扣庫存</text>
+
+    <rect x="550" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="640" y="88" class="t-name" text-anchor="middle">報名池</text>
+    <text x="640" y="108" class="t-subc" text-anchor="middle">uid 去重，一人一單</text>
+
+    <rect x="800" y="60" width="180" height="70" rx="6" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/>
+    <text x="890" y="88" class="t-name" text-anchor="middle">抽籤</text>
+    <text x="890" y="108" class="t-subc" text-anchor="middle">一次批次，種子可稽核</text>
+
+    <rect x="1050" y="60" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="1140" y="88" class="t-name" text-anchor="middle">中籤名單</text>
+    <text x="1140" y="108" class="t-subc" text-anchor="middle">人數 = 可售庫存</text>
+
+    <rect x="800" y="200" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="890" y="228" class="t-name" text-anchor="middle">候補名單</text>
+    <text x="890" y="248" class="t-subc" text-anchor="middle">依抽籤序號排序</text>
+
+    <rect x="1050" y="330" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="1140" y="358" class="t-name" text-anchor="middle">進付款</text>
+    <text x="1140" y="378" class="t-subc" text-anchor="middle">HELD，沿用圖 3 狀態機</text>
+
+    <rect x="800" y="330" width="180" height="70" rx="6" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/>
+    <text x="890" y="358" class="t-name" text-anchor="middle">PAID</text>
+    <text x="890" y="378" class="t-subc" text-anchor="middle">Worker 寫入 Spanner</text>
+
+    <text x="40" y="450" class="t-legh">LEGEND</text>
+    <rect x="100" y="441" width="12" height="10" rx="2" fill="rgba(235,108,54,0.06)" stroke="#eb6c36"/><text x="118" y="450" class="t-leg">焦點：唯一決定誰能買的一步</text>
+    <rect x="290" y="441" width="12" height="10" rx="2" fill="rgba(45,49,66,0.05)" stroke="#4f5d75"/><text x="308" y="450" class="t-leg">服務 / 資料</text>
+    <rect x="390" y="441" width="12" height="10" rx="2" fill="rgba(79,93,117,0.10)" stroke="#7a8399"/><text x="408" y="450" class="t-leg">入口</text>
+  </svg>
+  </div>
+</figure>
+
+</section>
+</div>
+
+<div class="part" id="p2">
+  <div class="wrap">
+    <span class="tag">PART 2</span>
+    <h2>規格</h2>
+    <p>每一層負責什麼、Lua 怎麼寫、付款與過期的邊界怎麼處理。</p>
+  </div>
+</div>
+
+<div class="wrap">
+<section>
+
+<h3 id="s-layer"><span class="num">7</span>分層防線</h3>
+<p class="intro">每層只擋自己能擋的，漏過的交給下一層。越前面越便宜、越後面越準。</p>
+<div class="tw"><table>
+  <thead><tr><th style="width:11%">層</th><th style="width:38%">做什麼</th><th>為什麼</th></tr></thead>
+  <tbody>
+  <tr><td><span class="pill a">邊緣</span></td><td>活動頁靜態化丟 CDN；WAF；<b>排隊前</b>先登入 + Turnstile</td><td>bot 若先進排隊就佔掉名額，後端再快也沒用</td></tr>
+  <tr><td><span class="pill a">排隊</span></td><td>放行速率 = 下游容量（token bucket）；位置用 SSE / WebSocket 推送</td><td>10 萬人輪詢排隊頁會自己先倒；重試一律 exponential backoff + jitter</td></tr>
+  <tr><td><span class="pill b">Redis</span></td><td>Lua 原子扣票；熱門庫存拆成 N 個 key 分片</td><td>單一 key 全打同一個 slot，Cluster 也救不了；分片數靠壓測決定</td></tr>
+  <tr><td><span class="pill b">佇列</span></td><td>事件進 Stream / Pub-Sub，Worker 批次寫 DB，消費冪等</td><td>削峰；Worker 掛掉要能重送，所以寫入必須冪等</td></tr>
+  <tr><td><span class="pill stop">DB</span></td><td><code>UNIQUE(event_id, seat_id)</code> 或 <code>UNIQUE(order_id)</code>；定時對帳</td><td>最後一道閘：Redis 丟資料時，DB 拒絕重複成交；對帳：庫存 + hold + 已成交 = 總量</td></tr>
+  <tr><td><span class="pill soft">提醒</span></td><td>降級：超過容量直接 <code>429</code> / <code>503</code> + <code>Retry-After</code></td><td>排隊吃記憶體比拒絕更危險；<b>只提醒，不影響上面各層</b></td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="s-lua"><span class="num">8</span>Lua 腳本</h3>
+<div class="codebox">
+  <div class="hd"><b>Lua（Redis EVAL）</b><span>示意，未在實際 Redis 跑過</span><span class="sp"></span><button class="cp" data-pre="1">複製</button></div>
+<pre><span class="cm">-- KEYS[1]=stock:{i}  KEYS[2]=bought:{i}:&lt;uid&gt;  KEYS[3]=hold:{i}:&lt;token&gt;  KEYS[4]=holds:{i}</span>
+<span class="cm">-- i = hash(uid) mod N，由 API 算好再組 KEYS；同一 uid 永遠同一片</span>
+<span class="cm">-- ARGV[1]=qty  ARGV[2]=limit  ARGV[3]=ttl_sec  ARGV[4]=expire_ts  ARGV[5]=uid  ARGV[6]=token</span>
+if redis.call('EXISTS', KEYS[3]) == 1 then return <b>2</b> end
+local bought = tonumber(redis.call('GET', KEYS[2]) or '0')
+if bought + ARGV[1] &gt; tonumber(ARGV[2]) then return <b>-2</b> end
+local s = tonumber(redis.call('GET', KEYS[1]) or '0')
+if s &lt; tonumber(ARGV[1]) then return <b>-1</b> end
+redis.call('DECRBY', KEYS[1], ARGV[1])
+redis.call('INCRBY', KEYS[2], ARGV[1])
+redis.call('SET', KEYS[3], ARGV[1], 'EX', ARGV[3])
+<span class="cm">-- member 帶 uid 與 qty：hold key 的 TTL 到了就沒了，Reaper 補回時只能靠這裡</span>
+redis.call('ZADD', KEYS[4], ARGV[4], ARGV[6] .. ':' .. ARGV[5] .. ':' .. ARGV[1])
+return <b>1</b></pre>
+</div>
+<p class="note"><b>分片時</b>：四個 KEYS 在 Redis Cluster 必須落在同一個 slot，所以全部用同一個 hash tag <code>{i}</code>，否則 EVAL 會被拒絕。其中 <code>i = hash(uid) mod N</code> 由 API 先算好，同一個 uid 永遠落在同一片，所以 <code>bought:{i}:&lt;uid&gt;</code> 就是該 uid 的完整限購計數。</p>
+
+<h3 id="s-race"><span class="num">9</span>Hold 過期與付款的競態</h3>
+<p class="intro">「10 分鐘沒付錢自動 release」的邊界最容易出事。下表是各情況的處理，狀態轉換一律用 CAS（比較後更新）。</p>
+<div class="tw"><table>
+  <thead><tr><th style="width:11%">層</th><th style="width:36%">情況</th><th>處理 / 為什麼</th></tr></thead>
+  <tbody>
+  <tr><td><span class="pill both">共用</span></td><td>Lua 扣票成功</td><td>同一個 Lua 內 <code>ZADD holds:{i}</code>，member = <code>token:uid:qty</code>。ZSET 按分片拆，<code>i</code> 由 <code>hash(uid)</code> 固定，Reaper 掃哪一片就補哪一片，限購計數也在同一片一併退；hold key 有 TTL 會消失，所以 uid 與 qty 必須放在 member 裡</td></tr>
+  <tr><td><span class="pill both">共用</span></td><td>使用者按下付款</td><td><code>HELD → PAYING</code>，延長 TTL，並 <code>ZADD XX</code> 把 <code>holds:{i}</code> 的 score 改成延長後的時間。付款中的單不能被 reaper 掃掉，否則剛輸入完卡號票就沒了</td></tr>
+  <tr><td><span class="pill both">共用</span></td><td>hold 到期且未付款</td><td><code>HELD → EXPIRED</code>。Reaper 對每個 <code>holds:{i}</code> 取 <code>score ≤ now</code>，CAS 成功才 <code>INCRBY stock:{i}</code> 並 <code>DECRBY bought:{i}:&lt;uid&gt;</code>。<b>限購計數也要退</b>，否則使用者放棄後額度永久少一份；<b>不依賴 keyspace notification</b>，它不保證送達</td></tr>
+  <tr><td><span class="pill b">Reaper</span></td><td>補回到一半掛掉</td><td>順序固定：<b>先 CAS 狀態、成功才補庫存、最後才 <code>ZREM</code></b>。重跑時 CAS 失敗就只 <code>ZREM</code>，不會重複補回</td></tr>
+  <tr><td><span class="pill stop">硬擋</span></td><td>付款成功 callback 到達，但狀態已是 <code>EXPIRED</code> 且票已被別人拿走</td><td>走 <code>REFUND</code>，不可硬塞一張票；Cloud Tasks delayed task 當 reaper 的兜底</td></tr>
+  <tr><td><span class="pill b">Worker</span></td><td>同一事件被消費兩次</td><td>以 order_id 冪等寫入，UNIQUE 約束擋重複</td></tr>
+  <tr><td><span class="pill soft">提醒</span></td><td>對帳發現 Redis 庫存與 DB 不一致</td><td>只告警並人工確認，<b>不自動修正庫存</b></td></tr>
+  </tbody>
+</table></div>
+
+<h3 id="s-status"><span class="num">10</span>現況與待決</h3>
+<div class="cards">
+  <div class="card">
+    <h4><span class="dot ok"></span>已驗證</h4>
+    <ul>
+      <li>無。本文為設計草案，Lua、分片、reaper 都<b>未實測</b>。</li>
+      <li>單 key 的 ops 上限、放行速率都只能靠壓測得到，文中沒有引用任何效能數字。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4><span class="dot pri"></span>給實作者的一句話規格</h4>
+    <ul>
+      <li>Redis 只做前置過濾，DB 的 UNIQUE 與對帳才是正確性來源。</li>
+      <li>查票、限購、扣票、記 hold 在同一個 Lua。</li>
+      <li>Redis 無法判斷時回 503，不放行。</li>
+      <li>付款中延長 TTL；過期後晚到的付款走退款。</li>
+    </ul>
+  </div>
+  <div class="card">
+    <h4><span class="dot warn"></span>未拍板</h4>
+    <ul>
+      <li>誰決定：放行速率 <code>&lt;N/s&gt;</code>，需依下游壓測結果。</li>
+      <li>誰決定：庫存分片數 <code>&lt;N&gt;</code>。</li>
+      <li>誰決定：各分片庫存怎麼配、uid 分佈不均造成某片先售罄時要不要再平衡；N 與 hash 函式也要在上線前定死。</li>
+      <li>誰決定：搶票制或報名抽籤制。<b>抽籤制</b>：報名只收單、沒有庫存競態，峰值變成窗口內的寫入，也沒有「先到先得」的公平爭議；代價是購票不即時（要等開獎）、要另做候補與逾期遞補、沒有「搶到」的體驗。<b>搶票制</b>：即時、體驗直接，但峰值、超賣風險和 bot 壓力都集中在開賣瞬間，本文圖 1–4 的複雜度主要來自這裡。</li>
+      <li>誰決定：hold TTL（暫定 10 分鐘）與 PAYING 延長值 <code>&lt;分鐘&gt;</code>。</li>
+      <li>業務是否改成報名抽籤制，可直接消掉峰值。</li>
+    </ul>
+  </div>
+</div>
+
+</section>
+</div>
+
+<footer><div class="wrap">
+  <span>高併發搶票架構 · 5 張圖 / 10 節</span>
+  <span>2026-10-14 · 設計草案</span>
+</div></footer>
+
+<div id="top" title="回到最上面">↑</div>
+
+<script>
+document.addEventListener("click", ev => {
+  const b = ev.target.closest("button.cp"); if (!b) return;
+  let t = "";
+  if (b.dataset.sel) t = document.querySelector(b.dataset.sel).textContent;
+  else if (b.dataset.pre) t = b.closest(".codebox").querySelector("pre").innerText;
+  if (!t) return;
+  const done = () => { b.textContent="已複製"; b.classList.add("done");
+                       setTimeout(()=>{b.textContent="複製";b.classList.remove("done");},1400); };
+  if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(t).then(done, fb); else fb();
+  function fb(){
+    const ta=document.createElement("textarea");
+    ta.value=t; ta.style.position="fixed"; ta.style.opacity="0";
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand("copy"); done(); }catch(_){ b.textContent="請手動複製"; }
+    document.body.removeChild(ta);
+  }
+});
+const navLinks = [...document.querySelectorAll("nav a")];
+const targets  = navLinks.map(a => document.getElementById(a.dataset.s)).filter(Boolean);
+const topBtn   = document.getElementById("top");
+function onScroll(){
+  const y = window.scrollY + 90;
+  let cur = null;
+  for (const t of targets) if (t.offsetTop <= y) cur = t.id;
+  navLinks.forEach(a => a.classList.toggle("on", a.dataset.s === cur));
+  topBtn.style.display = window.scrollY > 700 ? "flex" : "none";
+}
+window.addEventListener("scroll", onScroll, {passive:true});
+onScroll();
+topBtn.addEventListener("click", () => window.scrollTo({top:0,behavior:"smooth"}));
+</script>
+</body>
+</html>
